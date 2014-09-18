@@ -17,7 +17,7 @@ return {
     stare = true,
 
     talk_items = {
-        { ['text']='i am done with you' },
+        
 		{ ['text']='Where\'s your hat?' },
         { ['text']='Who are you?' },
         { ['text']='Is there another way out?' },
@@ -38,9 +38,11 @@ return {
 		"Um... never mind. Just keep an eye for it if you happen to pass through the fields, will you?",
     },
     ["Is there another way out?"]={
+
         "Of course not, son, otherwise everybody would have escaped by now.",
         "This has always been the only way out.",
 		"Yes sir!",
+
     },
     ["Who put this here?"]={
         "That old king {{grey}}Cornelius{{white}} put this thing up here not too long ago, and hired me and my crew to help build and guard it.",

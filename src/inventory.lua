@@ -3,6 +3,7 @@
 -- Manages the player's currently held items
 -----------------------------------------------------------------------
 
+local app       = require 'app'
 local anim8     = require 'vendor/anim8'
 local sound     = require 'vendor/TEsound'
 local camera    = require 'camera'
@@ -13,6 +14,7 @@ local fonts     = require 'fonts'
 local utils = require 'utils'
 local recipes = require 'items/recipes'
 local Item = require 'items/item'
+local controls = require('inputcontroller').get()
 
 local Inventory = {}
 Inventory.__index = Inventory
@@ -256,8 +258,11 @@ function Inventory:draw( playerPosition )
         
         love.graphics.print('Item', pos.x + 9, pos.y + 8)
         love.graphics.print(self.currentPageName:gsub("^%l", string.upper), pos.x + 18, pos.y + 21, 0, 0.9, 0.9)
-		tastyjump = fonts.tasty.new('press {{olive}}jump{{white}} to view information', pos.x + 9, pos.y + 103, 90, love.graphics.getFont(), fonts.colors)
-		tastyjump:draw()
+        if self:currentPage()[self:slotIndex(self.cursorPos)] then
+        	local jump = controls:getKey("JUMP")
+        	tastyjump = fonts.tasty.new('press {{peach}}' .. jump .. '{{white}} to view information', pos.x + 9, pos.y + 103, 90, love.graphics.getFont(), fonts.colors)
+        	tastyjump:draw()
+        end
 
         --Draw the crafting annex, if it's open
         if self.craftingVisible then
@@ -332,7 +337,7 @@ function Inventory:draw( playerPosition )
         end
 
         --Draw the tooltip window
-        if self.tooltipState == 'open' then
+        if self.tooltipState == 'open' and self:currentPage()[self:slotIndex(self.cursorPos)] then
             local tooltipText = {
                     x = pos.x - 76,
                     y = pos.y + 6
@@ -362,7 +367,9 @@ function Inventory:draw( playerPosition )
                 item = self.pages[self.currentPageName][slotIndex]
             elseif self.cursorPos.x == 2 and self.currentIngredients.a and self.currentIngredients.b then
                 local result = self:findResult(self.currentIngredients.a, self.currentIngredients.b)
-                item = require ('items/' .. result.type .. 's/' .. result.name)
+                if result then
+                    item = require ('items/' .. result.type .. 's/' .. result.name)
+                end
             elseif self.cursorPos.x == 3 and self.currentIngredients.a then
                 item = require ('items/' .. self.currentIngredients.a.type .. 's/' .. self.currentIngredients.a.name)
             elseif self.cursorPos.x == 4 and self.currentIngredients.b then
@@ -481,9 +488,11 @@ end
 -- Opens the tooltip annex
 -- @return nil
 function Inventory:tooltipOpen()
-    self.tooltipVisible = true
-    self.tooltipState = 'opening'
-    self:tooltipAnimation():resume()
+    if self:currentPage()[self:slotIndex(self.cursorPos)] then
+    	self.tooltipVisible = true
+    	self.tooltipState = 'opening'
+    	self:tooltipAnimation():resume()
+    end
 end
 
 ---
@@ -597,55 +606,76 @@ function Inventory:down()
 end
 
 ---
+-- Called when any items are added or removed from the player inventory
+-- @return nil
+function Inventory:changeItem()
+    -- Check player inventory against all NPCs in the current level
+    local level = GS.currentState()
+    if level.nodes then
+        for _,npc in pairs(level.nodes) do
+            if npc.type == 'npc' then
+                npc:checkInventory(self.player)
+            end
+        end
+    end
+end
+
+function Inventory:dropItem(item, slotIndex, page)
+    local level = GS.currentState()
+    local itemProps = item.props
+
+    if (itemProps.subtype == 'projectile' or itemProps.subtype == 'ammo') and type ~= 'scroll' then
+        itemProps.type = 'projectile'
+        itemProps.directory = 'weapons/'
+    end
+
+    local NodeClass = require('/nodes/' .. itemProps.type)
+
+    local height = item.image:getHeight() - 15
+
+    itemProps.width = itemProps.width or item.image:getWidth()
+    itemProps.height = itemProps.height or height
+
+    itemProps.x = self.player.position.x + 10
+    itemProps.y = self.player.position.y + 24 + (24 - itemProps.height)
+    itemProps.properties = {foreground = false}
+
+    local myNewNode = NodeClass.new(itemProps, level.collider)
+    myNewNode.type = itemProps.type
+
+    if myNewNode then
+    -- Must set the quantity after creating the Node.
+        myNewNode.quantity = item.quantity or 1
+        assert(myNewNode.draw, 'ERROR: ' .. myNewNode.name ..  ' does not have a draw function!')
+        level:addNode(myNewNode)
+        assert(level:hasNode(myNewNode), 'ERROR: Drop function did not properly add ' .. myNewNode.name .. ' to the level!')--]]
+        self:removeItem(slotIndex, page)
+        if myNewNode.drop then
+            myNewNode:drop(self.player)
+
+            -- Throws the weapon when dropping it
+            -- velocity.x is based off direction
+            -- velocity.y is constant from being thrown upwards
+            myNewNode.velocity = {x = (self.player.character.direction == 'left' and -1 or 1) * 100,
+                                  y = -200,
+                                 }
+        end
+    end
+end
+
+---
 -- Drops the currently selected item and adds a node at the player's position.
 -- @return nil
 function Inventory:drop()
     if self.craftingState == 'open' or self.currentPageName == 'keys' then return end --Ignore dropping in the crafting annex and on the keys page.
     local slotIndex = self:slotIndex(self.cursorPos)
     if self.pages[self.currentPageName][slotIndex] then
-        local level = GS.currentState()
         local item = self.pages[self.currentPageName][slotIndex]
-        local itemProps = item.props
-
-        local type = itemProps.type
-        
-        if (itemProps.subtype == 'projectile' or itemProps.subtype == 'ammo') and type ~= 'scroll' then
-            type = 'projectile'
-        end
-
-        local NodeClass = require('/nodes/' .. type)
-        
-        local height = item.image:getHeight() - 15
-
-        itemProps.width = itemProps.width or item.image:getWidth()
-        itemProps.height = itemProps.height or height
-
-        itemProps.x = self.player.position.x + 10
-        itemProps.y = self.player.position.y + 24 + (24 - itemProps.height)
-        itemProps.properties = {foreground = false}
-
-        local myNewNode = NodeClass.new(itemProps, level.collider)
-
-        if myNewNode then
-        -- Must set the quantity after creating the Node.
-            myNewNode.quantity = item.quantity or 1
-            assert(myNewNode.draw, 'ERROR: ' .. myNewNode.name ..  ' does not have a draw function!')
-            level:addNode(myNewNode)
-            assert(level:hasNode(myNewNode), 'ERROR: Drop function did not properly add ' .. myNewNode.name .. ' to the level!')--]]
-            self:removeItem(slotIndex, self.currentPageName)
-            if myNewNode.drop then
-                myNewNode:drop(self.player)
-                
-                -- Throws the weapon when dropping it
-                -- velocity.x is based off direction
-                -- velocity.y is constant from being thrown upwards
-                myNewNode.velocity = {x = (self.player.character.direction == 'left' and -1 or 1) * 100,
-                                      y = -200,
-                                     }
-            end
-            sound.playSfx('click')
-        end
+        self:dropItem(item, slotIndex, self.currentPageName)
+        sound.playSfx('click')
     end
+
+    self:changeItem()
 end
 
 ---
@@ -653,12 +683,16 @@ end
 -- @param item the item to add
 -- @param sfx optional bool that toggles the 'pickup' sound
 -- @return bool representing successful add
-function Inventory:addItem(item, sfx)
+function Inventory:addItem(item, sfx, callback)
     local pageName = item.type .. 's'
     assert(self.pages[pageName], "Bad Item type! " .. item.type .. " is not a valid item type.")
+
     if self:tryMerge(item) then 
         if sfx ~= false then
             sound.playSfx('pickup')
+        end
+        if callback then
+            callback()
         end
         return true --If we had a complete successful merge with no remainders, there is no reason to add the item.
     end 
@@ -673,6 +707,13 @@ function Inventory:addItem(item, sfx)
     if sfx ~= false then
         sound.playSfx('pickup')
     end
+
+    self:changeItem()
+    
+    if callback then
+        callback()
+    end
+
     return true
 end
 
@@ -687,6 +728,21 @@ function Inventory:removeItem( slotIndex, pageName )
         self.player.currently_held:deselect()
     end
     self.pages[pageName][slotIndex] = nil
+
+    self:changeItem()
+end
+
+---
+-- Drops all inventory items
+-- @return nil
+function Inventory:dropAllItems()
+  for page in pairs(self.pages) do
+    for k,v in pairs(self.pages[page]) do
+        self:dropItem(v, k, page)
+    end
+  end
+
+  self:changeItem()
 end
 
 ---
@@ -696,6 +752,8 @@ function Inventory:removeAllItems()
   for page in pairs(self.pages) do
     self.pages[page] = {}
   end
+
+  self:changeItem()
 end
 ---
 -- Removes a certain amount of items from the player
@@ -716,6 +774,8 @@ function Inventory:removeManyItems(amount, itemToRemove)
             self:removeItem(slotIndex, pageIndex)
         end
     end
+
+    self:changeItem()
 end
 
 ---

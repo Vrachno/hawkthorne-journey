@@ -1,9 +1,11 @@
 local sound = require 'vendor/TEsound'
 local Dialog = require 'dialog'
+local Timer = require 'vendor/timer'
 local Gamestate = require 'vendor/gamestate'
 local Prompt = require 'prompt'
 local fonts = require 'fonts'
 local Dealer = {}
+
 Dealer.__index = Dealer
 -- Nodes with 'isInteractive' are nodes which the player can interact with, but not pick up in any way
 Dealer.isInteractive = true
@@ -24,12 +26,37 @@ function Dealer.new(node, collider)
 end
 
 function Dealer:enter(dt)
+	
 	fonts.reset()
-	Dialog.new("Let's play {{yellow}}poker{{white}}")
-	sound.playSfx("letsPlayPoker")
+
+	self.dialog = Timer.add(3, function()
+		poker = Dialog.new("Let's play {{yellow}}poker{{white}}", 
+							function() self.loop = Timer.addPeriodic(15,function()
+									sfx = sound.playSfx("letsPlayPoker")
+									end, 
+								math.huge) 
+							end
+						)
+		sound.playSfx("letsPlayPoker")
+		
+	end
+	)
+
+	
+
+function Dealer:leave()
+    Timer.cancel(self.dialog)
+	if self.loop ~= nil then
+		Timer.cancel(self.loop)
+		end
+		
+		end
+		
+		
+end
 	
     
-end
+
 
 function Dealer:update(dt)
 end
@@ -41,6 +68,12 @@ function Dealer:keypressed( button, player )
 
     if button == 'INTERACT' then
         player.freeze = true
+		
+		Timer.cancel(self.dialog)
+
+		if self.loop ~= nil then
+		Timer.cancel(self.loop)
+		end
 
         local message = {'Choose a card game to play'}
         local options = {'Poker', 'Blackjack', 'Exit'}
