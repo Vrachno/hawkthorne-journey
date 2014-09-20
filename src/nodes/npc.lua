@@ -405,7 +405,6 @@ function NPC:keypressed( button, player )
             self.direction = "right"
         end
         if self.greeting and self.db:get( self.name .. '-greeting', true) then
-
             local walking_temp = self.walking
             self.walking = false
             Dialog.new(self.greeting, function()
@@ -416,7 +415,6 @@ function NPC:keypressed( button, player )
         else
             self.menu:open(player)
         end
-
         if self.begin then self.begin(self, player) end
     else
         return self.menu:keypressed(button, player)
